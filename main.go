@@ -8,7 +8,12 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/metric"
-	sdk "go.opentelemetry.io/otel/sdk/metric"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	"go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
 )
 
 func main() {
@@ -19,8 +24,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to create exporter: %v", err)
 	}
-	provider := sdk.NewMeterProvider(
-		sdk.WithReader(sdk.NewPeriodicReader(exporter, sdk.WithInterval(5*time.Second))),
+	provider := sdkmetric.NewMeterProvider(
+		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exporter, sdkmetric.WithInterval(5*time.Second))),
 	)
 	otel.SetMeterProvider(provider)
 
@@ -33,10 +38,35 @@ func main() {
 		log.Fatalf("failed to create counter metric: %v", err)
 	}
 
+	// Create OTLP trace exporter
+	traceexporter, err := otlptracehttp.New(ctx)
+	if err != nil {
+		log.Fatalf("failed to create trace traceexporter: %v", err)
+	}
+
+	// Create trace provider
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(traceexporter),
+		sdktrace.WithResource(resource.NewWithAttributes(
+			semconv.SchemaURL,
+			semconv.ServiceNameKey.String("example-service"),
+		)),
+	)
+	otel.SetTracerProvider(tp)
+
+	// Create a tracer
+	tracer := otel.Tracer("example-tracer")
+
 	// Increment it every 5 seconds
 	ticker := time.NewTicker(5 * time.Second)
 	for range ticker.C {
+		// counter
 		counter.Add(ctx, 1)
 		log.Println("Counter incremented")
+
+		_, span := tracer.Start(ctx, "example-span")
+		// Simulate some work
+		time.Sleep(1 * time.Second)
+		span.End()
 	}
 }
