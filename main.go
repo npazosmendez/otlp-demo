@@ -14,6 +14,11 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
+
+	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
+	"go.opentelemetry.io/otel/log/global"
+	"go.opentelemetry.io/contrib/bridges/otelslog"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
 )
 
 func main() {
@@ -38,6 +43,16 @@ func main() {
 		log.Fatalf("failed to create counter metric: %v", err)
 	}
 
+	// Create OTLP log exporter
+	logexporter, err := otlploghttp.New(ctx)
+	if err != nil {
+		log.Fatalf("failed to create log logexporter: %v", err)
+	}
+	lp := sdklog.NewLoggerProvider(
+		sdklog.WithProcessor(sdklog.NewBatchProcessor(logexporter)),
+	)
+	global.SetLoggerProvider(lp)
+
 	// Create OTLP trace exporter
 	traceexporter, err := otlptracehttp.New(ctx)
 	if err != nil {
@@ -57,6 +72,9 @@ func main() {
 	// Create a tracer
 	tracer := otel.Tracer("example-tracer")
 
+	// Get the logger
+	logger := otelslog.NewLogger("example-logger")
+
 	// Increment it every 5 seconds
 	ticker := time.NewTicker(5 * time.Second)
 	for range ticker.C {
@@ -64,7 +82,11 @@ func main() {
 		counter.Add(ctx, 1)
 		log.Println("Counter incremented")
 
+		// log
+		logger.InfoContext(ctx, "Example log", "now", time.Now().Unix())
+
 		_, span := tracer.Start(ctx, "example-span")
+
 		// Simulate some work
 		time.Sleep(1 * time.Second)
 		span.End()
